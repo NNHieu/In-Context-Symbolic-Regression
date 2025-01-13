@@ -27,12 +27,14 @@ from mloggers import ConsoleLogger, FileLogger, MultiLogger, LogLevel
 from typing import Dict, Tuple, List, Any
 from collections.abc import Callable
 
+from feynman_dm import FeynmanDataModule
+    
 
 class Workspace(object):
     """
     Workspace class for running the symbolic regression experiment.
     """
-    def __init__(self, cfg: DictConfig) -> None:
+    def __init__(self, cfg: DictConfig, problem, group_name) -> None:
         self.cfg = cfg
         
         # Output setup
@@ -41,6 +43,10 @@ class Workspace(object):
         model_folder_name = cfg.model.name.strip()
         if "/" in model_folder_name:
             model_folder_name = model_folder_name.split("/")[-1]
+
+        cfg.experiment.function.group = group_name
+        cfg.experiment.function.name = str(problem.equation_idx)
+
         experiment_folder_name = os.path.join(cfg.experiment.function.group, cfg.experiment.function.name) if hasattr(cfg.experiment.function, "group") else cfg.experiment.function.name
         self.output_path = os.path.join(self.root_dir, self.output_dir, experiment_folder_name, model_folder_name, datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + "/")
         while os.path.exists(self.output_path):
@@ -110,56 +116,78 @@ class Workspace(object):
         self.logger.info(f"Cache dir: {os.environ.get('HF_HOME', None)}.")
         
         # Experiment settings
-        self.data_folder = cfg.experiment.function.train_points.get("data_folder", None)
-        self.data_folder = os.path.join(self.root_dir, self.data_folder) if self.data_folder is not None else None
+        # self.data_folder = cfg.experiment.function.train_points.get("data_folder", None)
+        # self.data_folder = os.path.join(self.root_dir, self.data_folder) if self.data_folder is not None else None
 
-        if cfg.experiment.function.train_points.generate_points:
-            self.min_train_points = cfg.experiment.function.train_points.min_points
-            self.max_train_points = cfg.experiment.function.train_points.max_points
-            self.num_train_points = cfg.experiment.function.train_points.num_points
-            self.xs_noise_std = cfg.experiment.function.train_points.xs_noise_std
-            self.ys_noise_std = cfg.experiment.function.train_points.ys_noise_std
-            self.random_train_points = self.cfg.experiment.function.train_points.random_points \
-                if hasattr(self.cfg.experiment.function.train_points, "random_points") \
-                and self.cfg.experiment.function.train_points.random_points else False
-        else:
-            assert self.data_folder is not None, "No data folder specified."
-            assert os.path.exists(self.data_folder), f"Data folder {self.data_folder} does not exist."
-            assert os.path.exists(os.path.join(self.data_folder, 'train_points.npy')), f"Train points file {os.path.join(self.data_folder, 'train_points.npy')} does not exist."
-            assert os.path.exists(os.path.join(self.data_folder, 'test_points.npy')), f"Test points file {os.path.join(self.data_folder, 'test_points.npy')} does not exist."
+        # if cfg.experiment.function.train_points.generate_points:
+        #     self.min_train_points = cfg.experiment.function.train_points.min_points
+        #     self.max_train_points = cfg.experiment.function.train_points.max_points
+        #     self.num_train_points = cfg.experiment.function.train_points.num_points
+        #     self.xs_noise_std = cfg.experiment.function.train_points.xs_noise_std
+        #     self.ys_noise_std = cfg.experiment.function.train_points.ys_noise_std
+        #     self.random_train_points = self.cfg.experiment.function.train_points.random_points \
+        #         if hasattr(self.cfg.experiment.function.train_points, "random_points") \
+        #         and self.cfg.experiment.function.train_points.random_points else False
+        # else:
+        #     assert self.data_folder is not None, "No data folder specified."
+        #     assert os.path.exists(self.data_folder), f"Data folder {self.data_folder} does not exist."
+        #     assert os.path.exists(os.path.join(self.data_folder, 'train_points.npy')), f"Train points file {os.path.join(self.data_folder, 'train_points.npy')} does not exist."
+        #     assert os.path.exists(os.path.join(self.data_folder, 'test_points.npy')), f"Test points file {os.path.join(self.data_folder, 'test_points.npy')} does not exist."
             
-            train_points_file = os.path.join(self.data_folder, 'train_points.npy')
-            self.train_points = utils.load_points(train_points_file)
-            self.num_train_points = len(self.train_points)
-            self.min_train_points = np.min(self.train_points)
-            self.max_train_points = np.max(self.train_points)
-            self.logger.info(f"Loaded train points from {train_points_file}.")
+        #     train_points_file = os.path.join(self.data_folder, 'train_points.npy')
+        #     self.train_points = utils.load_points(train_points_file)
+        #     self.num_train_points = len(self.train_points)
+        #     self.min_train_points = np.min(self.train_points)
+        #     self.max_train_points = np.max(self.train_points)
+        #     self.logger.info(f"Loaded train points from {train_points_file}.")
             
-            test_points_file = os.path.join(self.data_folder, 'test_points.npy')
-            self.test_points = utils.load_points(test_points_file)
-            self.num_test_points = len(self.test_points)
-            self.min_test_points = np.min(self.test_points)
-            self.max_test_points = np.max(self.test_points)
-            self.logger.info(f"Loaded test points from {test_points_file}.")
+        #     test_points_file = os.path.join(self.data_folder, 'test_points.npy')
+        #     self.test_points = utils.load_points(test_points_file)
+        #     self.num_test_points = len(self.test_points)
+        #     self.min_test_points = np.min(self.test_points)
+        #     self.max_test_points = np.max(self.test_points)
+        #     self.logger.info(f"Loaded test points from {test_points_file}.")
 
-        self.tolerance = cfg.experiment.function.tolerance
+        
+
+        num_points = 100
+        self.train_points = problem.samples['train']
+        input_idx_range = list(range(self.train_points.shape[1]))
+        self.train_points = self.train_points[:num_points, input_idx_range[1:] + [0]]
+        self.num_train_points = len(self.train_points)
+        self.min_train_points = np.min(self.train_points)
+        self.max_train_points = np.max(self.train_points)
+        
+        self.test_points = problem.samples['test']
+        self.test_points = self.test_points[:, input_idx_range[1:] + [0]]
+        self.num_test_points = len(self.test_points)
+        self.min_test_points = np.min(self.test_points)
+        self.max_test_points = np.max(self.test_points)
+        self.tolerance = 0.99999
+        self.num_variables = len(problem.gt_equation.symbols)
+        self.iterations = 10 
+
+        # self.tolerance = cfg.experiment.function.tolerance
         self.num_variables = cfg.experiment.function.num_variables
         if self.num_variables > 2 and self.visual_model:
             self.logger.error("Visual models only support up to 2 variables.")
             exit(1)
         
-        self.iterations = cfg.experiment.function.iterations
+        # self.iterations = cfg.experiment.function.iterations
         self.max_retries = cfg.max_retries
         self.force_valid = cfg.force_valid
         self.force_unique = cfg.force_unique
         self.checkpoints = cfg.checkpoints
 
-        if "test_function" not in cfg.experiment.function:
-            self.logger.info("Test function is not known.")
-            self.test_function = None
-        else:
-            self.test_function_name = cfg.experiment.function.test_function
-            self.test_function = utils.string_to_function(self.test_function_name, self.num_variables)
+        # if "test_function" not in cfg.experiment.function:
+        #     self.logger.info("Test function is not known.")
+        #     self.test_function = None
+        # else:
+        #     self.test_function_name = cfg.experiment.function.test_function
+        #     self.test_function = utils.string_to_function(self.test_function_name, self.num_variables)
+
+        self.test_function_name = problem.gt_equation.expression
+        self.test_function = utils.string_to_function(self.test_function_name, self.num_variables)
 
         # Points setup
         if cfg.experiment.function.train_points.generate_points:
@@ -785,8 +813,27 @@ class Workspace(object):
                 self.results["R2_tests"].append(r2_test)
                 self.results["R2_alls"].append(r2_all)
 
+                log_file = self.output_path + "run_log.jsonl"
+                with open(log_file, 'a') as f:
+                    o = {
+                        "iteration": i+1,
+                        "expression": str(expr),
+                        "function": str(function),
+                        "score": score,
+                        "R2_trains": r2_train,
+                        "R2_tests": r2_test,
+                        "R2_alls": r2_all,
+                        "temperature": self.temperature,
+                        # "best_expr": str(best_expr),
+                        "best_score": self.current_functions.scores[best_expr],
+                        "best_score_normalized": self.current_functions.norm_scores[best_expr],
+                    }
+                    # breakpoint()
+                    f.write(json.dumps(o) + "\n")
+
                 # Update video
                 if self.save_video:
+
                     if not score == np.inf:
                         frame, ax = self.plotter.record_frame(best_function, function, r2_test, self.test_function, i, plot_true=True)
                         if self.save_frames:
@@ -868,8 +915,12 @@ class Workspace(object):
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    workspace = Workspace(cfg)
-    workspace.run()
+    dm = FeynmanDataModule()
+    dm.setup()
+
+    for problem in dm.problems:
+        workspace = Workspace(cfg, problem, group_name=dm.name)
+        workspace.run()
 
 def dump_profile():
     profiler.disable()

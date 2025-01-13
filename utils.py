@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Tuple, List, Dict, Any
 
 from sklearn.metrics import mean_squared_error, r2_score
-from models import LLaVaModelHF, HuggingFaceModel, OpenAIModel
+from models import LLaVaModelHF, HuggingFaceModel, OpenAIModel, HFInferModel
 
 import sympy
 from sympy.parsing.sympy_parser import parse_expr
@@ -49,6 +49,9 @@ def load_model(model_name: str, device: device, dtype: dtype, cache_dir: str = N
         model = LLaVaModelHF(model_name, device, dtype, cache_dir, **model_args)
     elif 'gpt' in model_name:
         model = OpenAIModel(model_name, device, dtype, cache_dir, **model_args)
+    elif 'HFINF' in model_name:
+        model_name = '/'.join(model_name.split("/")[1:])
+        model = HFInferModel(model_name, device, dtype, cache_dir, **model_args)
     else:
         model = HuggingFaceModel(model_name, device, dtype, cache_dir, **model_args)
 
